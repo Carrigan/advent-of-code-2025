@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 advent_of_code::solution!(10);
 
 #[derive(Debug)]
@@ -52,7 +54,21 @@ fn is_useful_button(button: &Vec<usize>, desired_lights: &Vec<bool>, current_lig
     button.iter().any(|&l_index| lights_diff[l_index])
 }
 
-fn recurse_option(machine: &Machine, current_lights: &Vec<bool>, buttons_pressed: &Vec<usize>, best_solution: &mut Option<Vec<usize>>) {
+
+// For part 2, a useful button is one that does not go above the desired numbers
+fn is_useful_button_p2(button: &Vec<usize>, desired_joltages: &Vec<usize>, current_joltages: &Vec<usize>) -> bool {
+    for joltage_index in 0..desired_joltages.len() {
+        if desired_joltages[joltage_index] != current_joltages[joltage_index] { continue; }
+
+        if let Some(_) = button.iter().find(|&&button_index| button_index == joltage_index) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn recurse_option_pt1(machine: &Machine, current_lights: &Vec<bool>, buttons_pressed: &Vec<usize>, best_solution: &mut Option<Vec<usize>>) {
     // If we have a match, add it to the working solutions and return
     let lights_match = (0..current_lights.len())
         .all(|index| current_lights[index] == machine.light_state[index]);
@@ -94,9 +110,62 @@ fn recurse_option(machine: &Machine, current_lights: &Vec<bool>, buttons_pressed
         // Clone buttons pressed and pass it along
         let mut pressed_clone = buttons_pressed.clone();
         pressed_clone.push(button_index);
-        recurse_option(machine, &updated_lights, &pressed_clone, best_solution);
+        recurse_option_pt1(machine, &updated_lights, &pressed_clone, best_solution);
+    }
+}
+
+fn recurse_option_pt2(machine: &Machine, current_joltages: &Vec<usize>, buttons_pressed: &Vec<usize>, best_solution: &mut Option<Vec<usize>>) {
+    // If we have a match, add it to the working solutions and return
+    let joltages_match = (0..current_joltages.len())
+        .all(|index| current_joltages[index] == machine.joltages[index]);
+
+    if joltages_match {
+        *best_solution = Some(buttons_pressed.clone());
+        return
     }
 
+    // If another button press gives a solution longer than an existing one, don't bother
+    if let Some(shortest_working_solution) = best_solution {
+        if buttons_pressed.len() >= shortest_working_solution.len() {
+            return
+        }
+    }
+
+    // Find all valid buttons that could be pushed, sorted by most effects first (i.e. prefer more impactful presses)
+    let potential_presses = machine
+        .buttons
+        .iter()
+        .enumerate()
+        .filter(|(_, button)| is_useful_button_p2(button, &machine.joltages, current_joltages))
+        .map(|(b_i, button)| (b_i, button, button.len()))
+        .sorted_by(|a, b| a.2.cmp(&b.2))
+        .rev();
+
+    // For each one, press it and then recurse
+    let mut count_buttons_pressed = 0;
+    for (button_index, button, _) in potential_presses {
+        count_buttons_pressed += 1;
+
+        // Update the state after the button press
+        let updated_joltages = (0..current_joltages.len())
+            .map(|i| {
+                let adder = match button.iter().find(|&&joltage_index| joltage_index == i) {
+                    None => 0,
+                    Some(_) => 1
+                };
+
+                current_joltages[i] + adder
+            })
+            .collect();
+
+        // Clone buttons pressed and pass it along
+        let mut pressed_clone = buttons_pressed.clone();
+        pressed_clone.push(button_index);
+        recurse_option_pt2(machine, &updated_joltages, &pressed_clone, best_solution);
+    }
+
+    // If there were no buttons pressed, we're at a dead end
+    if count_buttons_pressed == 0 { return }
 }
 
 fn solve_machine_part_1(machine: &Machine) -> u64 {
@@ -105,7 +174,19 @@ fn solve_machine_part_1(machine: &Machine) -> u64 {
     for _ in 0..machine.light_state.len() { current_lights.push(false); }
 
     let mut best_solution = None;
-    recurse_option(machine, &current_lights, &Vec::new(), &mut best_solution);
+    recurse_option_pt1(machine, &current_lights, &Vec::new(), &mut best_solution);
+
+    // Find the fewest button presses
+    best_solution.unwrap().len() as u64
+}
+
+fn solve_machine_part_2(machine: &Machine) -> u64 {
+    // Set up the initial state
+    let mut current_joltages = Vec::new();
+    for _ in 0..machine.joltages.len() { current_joltages.push(0); }
+
+    let mut best_solution = None;
+    recurse_option_pt2(machine, &current_joltages, &Vec::new(), &mut best_solution);
 
     // Find the fewest button presses
     best_solution.unwrap().len() as u64
@@ -130,7 +211,14 @@ pub fn part_one(input: &str) -> Option<u64> {
 }
 
 pub fn part_two(input: &str) -> Option<u64> {
-    None
+    let input = parse_input(input);
+
+    let result = input
+        .iter()
+        .map(|m| solve_machine_part_2(m))
+        .sum();
+
+    Some(result)
 }
 
 #[cfg(test)]
@@ -146,6 +234,6 @@ mod tests {
     #[test]
     fn test_part_two() {
         let result = part_two(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+        assert_eq!(result, Some(33));
     }
 }
