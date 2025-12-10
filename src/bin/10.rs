@@ -52,14 +52,21 @@ fn is_useful_button(button: &Vec<usize>, desired_lights: &Vec<bool>, current_lig
     button.iter().any(|&l_index| lights_diff[l_index])
 }
 
-fn recurse_option(machine: &Machine, current_lights: &Vec<bool>, buttons_pressed: &Vec<usize>, working_solutions: &mut Vec<Vec<usize>>) {
-    // If we have a match, return
+fn recurse_option(machine: &Machine, current_lights: &Vec<bool>, buttons_pressed: &Vec<usize>, best_solution: &mut Option<Vec<usize>>) {
+    // If we have a match, add it to the working solutions and return
     let lights_match = (0..current_lights.len())
         .all(|index| current_lights[index] == machine.light_state[index]);
 
     if lights_match {
-        working_solutions.push(buttons_pressed.clone());
+        *best_solution = Some(buttons_pressed.clone());
         return
+    }
+
+    // If another button press gives a solution longer than an existing one, don't bother
+    if let Some(shortest_working_solution) = best_solution {
+        if buttons_pressed.len() >= shortest_working_solution.len() {
+            return
+        }
     }
 
     // Find all valid buttons that could be pushed
@@ -87,7 +94,7 @@ fn recurse_option(machine: &Machine, current_lights: &Vec<bool>, buttons_pressed
         // Clone buttons pressed and pass it along
         let mut pressed_clone = buttons_pressed.clone();
         pressed_clone.push(button_index);
-        recurse_option(machine, &updated_lights, &pressed_clone, working_solutions);
+        recurse_option(machine, &updated_lights, &pressed_clone, best_solution);
     }
 
 }
@@ -97,17 +104,11 @@ fn solve_machine_part_1(machine: &Machine) -> u64 {
     let mut current_lights = Vec::new();
     for _ in 0..machine.light_state.len() { current_lights.push(false); }
 
-    let mut working_solutions = Vec::new();
-    recurse_option(machine, &current_lights, &Vec::new(), &mut working_solutions);
+    let mut best_solution = None;
+    recurse_option(machine, &current_lights, &Vec::new(), &mut best_solution);
 
     // Find the fewest button presses
-    working_solutions
-        .iter()
-        .map(|v| v.len())
-        .min()
-        .unwrap()
-        .try_into()
-        .unwrap()
+    best_solution.unwrap().len() as u64
 }
 
 fn parse_input(input: &str) -> Vec<Machine> {
