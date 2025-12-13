@@ -33,7 +33,6 @@ pub fn parse_input(input: &str) -> (Vec<String>, HashMap<usize, Vec<usize>>) {
         edges.insert(this_node_index, connections);
     }
 
-
     (nodes, edges)
 }
 
