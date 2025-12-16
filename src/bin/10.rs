@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use itertools::Itertools;
+use good_lp::*;
 
 advent_of_code::solution!(10);
 
@@ -56,20 +56,6 @@ fn is_useful_button(button: &Vec<usize>, desired_lights: &Vec<bool>, current_lig
     button.iter().any(|&l_index| lights_diff[l_index])
 }
 
-
-// For part 2, a useful button is one that does not go above the desired numbers
-fn is_useful_button_p2(button: &Vec<usize>, desired_joltages: &Vec<usize>, current_joltages: &Vec<usize>) -> bool {
-    for joltage_index in 0..desired_joltages.len() {
-        if desired_joltages[joltage_index] != current_joltages[joltage_index] { continue; }
-
-        if let Some(_) = button.iter().find(|&&button_index| button_index == joltage_index) {
-            return false;
-        }
-    }
-
-    true
-}
-
 fn recurse_option_pt1(machine: &Machine, current_lights: &Vec<bool>, buttons_pressed: &Vec<usize>, best_solution: &mut Option<Vec<usize>>) {
     // If we have a match, add it to the working solutions and return
     let lights_match = (0..current_lights.len())
@@ -116,64 +102,6 @@ fn recurse_option_pt1(machine: &Machine, current_lights: &Vec<bool>, buttons_pre
     }
 }
 
-fn recurse_option_pt2(machine: &Machine, button_indeces: &Vec<usize>, current_joltages: &Vec<usize>, count: usize, best_solution: &mut Option<usize>, cache: &mut HashMap<Vec<usize>, usize>) {
-    // If we have been to this state before in fewer buttons, return
-    if let Some(&best_count) = cache.get(current_joltages) {
-        if best_count <= count {
-            return;
-        }
-    }
-
-    // If we have a match, add it to the working solutions and return
-    let joltages_match = (0..current_joltages.len())
-        .all(|index| current_joltages[index] == machine.joltages[index]);
-
-    if joltages_match {
-        println!("Found solution: {:?}", count);
-        *best_solution = Some(count);
-        return
-    }
-
-    // If another button press gives a solution longer than an existing one, don't bother
-    if let Some(shortest_working_solution) = best_solution {
-        if count >= *shortest_working_solution {
-            return
-        }
-    }
-
-    // Otherwise, we are going to try pressing all the buttons. Add this to the cache so that
-    // we don't try it again
-    cache.insert(current_joltages.clone(), count);
-
-    // Find all valid buttons that could be pushed, sorted by most effects first (i.e. prefer more impactful presses)
-    let mut indeces_copy = button_indeces.clone();
-    indeces_copy.retain(|index| is_useful_button_p2(&machine.buttons[*index], &machine.joltages, current_joltages));
-
-    if indeces_copy.len() == 0 {
-        return;
-    }
-
-    // For each one, press it and then recurse
-    for button_index in indeces_copy.iter() {
-        let button = &machine.buttons[*button_index];
-
-        // Update the state after the button press
-        let updated_joltages = (0..current_joltages.len())
-            .map(|i| {
-                let adder = match button.iter().find(|&&joltage_index| joltage_index == i) {
-                    None => 0,
-                    Some(_) => 1
-                };
-
-                current_joltages[i] + adder
-            })
-            .collect();
-
-        // Try this path
-        recurse_option_pt2(machine, &indeces_copy, &updated_joltages, count + 1, best_solution, cache);
-    }
-}
-
 fn solve_machine_part_1(machine: &Machine) -> u64 {
     // Set up the initial state
     let mut current_lights = Vec::new();
@@ -187,19 +115,48 @@ fn solve_machine_part_1(machine: &Machine) -> u64 {
 }
 
 fn solve_machine_part_2(machine: &mut Machine) -> u64 {
-    // Set up the initial state
-    let mut current_joltages = Vec::new();
-    for _ in 0..machine.joltages.len() { current_joltages.push(0); }
+    let mut vars = ProblemVariables::new();
+    let num_buttons = machine.buttons.len();
 
-    let mut best_solution = None;
-    machine.buttons.sort_by(|a, b| a.len().cmp(&b.len()));
-    let button_indeces = (0..machine.buttons.len()).collect();
-    let mut cache = HashMap::new();
+    // Create variables dynamically
+    let button_vars: Vec<Variable> = (0..num_buttons)
+        .map(|_| vars.add(variable().integer().min(0)))
+        .collect();
 
-    recurse_option_pt2(machine, &button_indeces, &current_joltages, 0, &mut best_solution, &mut cache);
+    // Objective: minimize sum of all button presses
+    let objective: Expression = button_vars.iter()
+        .map(|&v| Expression::from(v))
+        .sum();
 
-    // Find the fewest button presses
-    best_solution.unwrap() as u64
+    // Build constraints dynamically
+    let mut problem = vars.minimise(objective).using(default_solver);
+
+    for (counter_idx, &target) in machine.joltages.iter().enumerate() {
+        // Sum up effects of all buttons on this counter
+        let constraint_expr: Expression = button_vars
+            .iter()
+            .enumerate()
+            .map(|(btn_idx, &var)| {
+                match machine.buttons[btn_idx].contains(&counter_idx) {
+                    true => 1 * var,
+                    false => 0 * var
+                }
+            })
+            .sum();
+
+        problem = problem.with(constraint!(constraint_expr == target as f64));
+    }
+
+    // Solve
+    let solution = problem.solve()
+        .map_err(|e| format!("Solver error: {:?}", e)).unwrap();
+
+    // Extract results
+    let total_presses: i32 = button_vars.iter()
+        .map(|&v| solution.value(v) as i32)
+        .sum();
+
+    total_presses as u64
 }
 
 fn parse_input(input: &str) -> Vec<Machine> {
